@@ -3,8 +3,14 @@ import java.net.*;
 
 public class Client {
     public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        System.out.print("Nhap dia chi IP server: ");
+        String host = br.readLine();
+        System.out.print("Nhap cong server: ");
+        int port = Integer.parseInt(br.readLine());
         // Ket noi toi server
-        Socket socket = new Socket("localhost", 1234);
+        // Socket socket = new Socket("localhost", 1234);
+        Socket socket = new Socket(host, port);
         System.out.println("Da ket noi toi server!");
 
         // Tao stream de nhan du lieu
