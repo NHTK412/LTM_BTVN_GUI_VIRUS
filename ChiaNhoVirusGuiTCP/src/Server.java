@@ -1,64 +1,88 @@
 import java.io.*;
 import java.net.*;
+import java.nio.file.*;
 import java.util.Scanner;
 
 public class Server {
-    public static void main(String[] args) throws Exception {
-        // Tao server socket lang nghe tai cong 1234
-        ServerSocket serverSocket = new ServerSocket(1234);
-        System.out.println("Server dang cho ket noi...");
-        
-
-        // Chap nhan ket noi tu client
-        Socket socket = serverSocket.accept();
-        System.out.println("Da ket noi voi client!");
-
-        // Tao stream de gui du lieu
-        DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-
-        // Tao doi tuong nhap tu ban phim
-        Scanner scanner = new Scanner(System.in);
-
-        // Lay file va kich thuoc
-        // File file = new File("D:\\Programming_Language\\Java\\BTVN_LTM\\ChiaNhoVirusGuiTCP\\bin\\Virus.exe");
-        File file = new File("D:\\Programming_Language\\Java\\BTVN_LTM\\ChiaNhoVirusGuiTCP\\Untitled1.exe");
-        FileInputStream fis = new FileInputStream(file);
-        long fileSize = file.length();
-        System.out.println("Dung luong file: " + fileSize + " bytes");
-
-        // Tinh kich thuoc moi phan (4 phan)
-        int numberOfParts = 4;
-        int chunkSize = (int) Math.ceil(fileSize / (double) numberOfParts);
-        byte[] buffer = new byte[chunkSize];
-
-        int bytesRead;
-
-        // Doc tung phan va gui di
-        while ((bytesRead = fis.read(buffer)) != -1) {
-            // Nguoi dung nhap tin nhan tu ban phim
-            System.out.print("Nhap tin nhan gui kem voi phan nay: ");
-            String message = scanner.nextLine();
-
-            // Gui tin nhan
-            out.writeUTF("MSG:" + message);
-
-            // Gui do dai du lieu
-            out.writeInt(bytesRead);
-
-            // Gui noi dung file
-            out.write(buffer, 0, bytesRead);
+    private static final int PORT = 1234;
+    private static final int NUMBER_OF_PARTS = 4;
+    private static final String FILE_PATH = "D:\\Programming_Language\\Java\\BTVN_LTM\\ChiaNhoVirusGuiTCP\\Untitled1.exe";
+    
+    public static void main(String[] args) {
+        new Server().startServer();
+    }
+    
+    public void startServer() {
+        // Sử dụng try-with-resources để tự động đóng tài nguyên
+        try (ServerSocket serverSocket = new ServerSocket(PORT);
+             Scanner scanner = new Scanner(System.in)) {
+            
+            System.out.println("Server đang chờ kết nối trên cổng " + PORT + "...");
+            
+            // Chấp nhận kết nối từ client
+            try (Socket socket = serverSocket.accept();
+                 DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+                
+                System.out.println("Đã kết nối với client!");
+                
+                sendFileInChunks(out, scanner);
+                
+                System.out.println("Gửi file hoàn tất và đóng kết nối.");
+            }
+            
+        } catch (IOException e) {
+            System.err.println("Lỗi server: " + e.getMessage());
+            e.printStackTrace();
         }
-
-        // Gui thong diep ket thuc
-        out.writeUTF("MSG:DONE");
-
-        // Dong cac ket noi
-        fis.close();
-        out.close();
-        socket.close();
-        serverSocket.close();
-        scanner.close();
-
-        System.out.println("Gui file hoan tat va dong ket noi.");
+    }
+    
+    private void sendFileInChunks(DataOutputStream out, Scanner scanner) throws IOException {
+        Path filePath = Paths.get(FILE_PATH);
+        
+        // Kiểm tra file tồn tại
+        if (!Files.exists(filePath)) {
+            System.err.println("File không tồn tại: " + FILE_PATH);
+            return;
+        }
+        
+        long fileSize = Files.size(filePath);
+        System.out.println("Dung lượng file: " + fileSize + " bytes");
+        
+        // Tính kích thước mỗi phần
+        int chunkSize = (int) Math.ceil(fileSize / (double) NUMBER_OF_PARTS);
+        
+        try (FileInputStream fis = new FileInputStream(filePath.toFile())) {
+            byte[] buffer = new byte[chunkSize];
+            int bytesRead;
+            int partNumber = 1;
+            
+            // Đọc từng phần và gửi đi
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                // Người dùng nhập tin nhắn từ bàn phím
+                System.out.printf("Nhập tin nhắn gửi kèm với phần %d/%d: ", 
+                                partNumber++, NUMBER_OF_PARTS);
+                String message = scanner.nextLine();
+                
+                // Gửi tin nhắn
+                out.writeUTF("MSG:" + message);
+                
+                // Gửi độ dài dữ liệu
+                out.writeInt(bytesRead);
+                
+                // Gửi nội dung file
+                out.write(buffer, 0, bytesRead);
+                out.flush(); // Đảm bảo dữ liệu được gửi ngay lập tức
+                
+                System.out.println("Đã gửi phần " + (partNumber - 1) + " (" + bytesRead + " bytes)");
+            }
+            
+            // Gửi thông điệp kết thúc
+            out.writeUTF("MSG:DONE");
+            out.flush();
+            
+        } catch (IOException e) {
+            System.err.println("Lỗi khi đọc/gửi file: " + e.getMessage());
+            throw e;
+        }
     }
 }
