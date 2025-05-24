@@ -1,89 +1,122 @@
 #include <iostream>
-#include <string> // Cần thiết cho std::string
-#include <cstdlib> // Cần thiết cho system() và EXIT_SUCCESS, EXIT_FAILURE
+#include <string>
+#include <cstdlib>
+#include <random>
+#include <chrono> // Added missing header for chrono
 
 #ifdef _WIN32
-#include <windows.h> // Cho Sleep và MessageBox
-#else
-#include <unistd.h> // Cho sleep (Lưu ý: sleep ở đây tính bằng giây)
-// Đối với MessageBox trên Linux, chúng ta sẽ sử dụng một giải pháp dòng lệnh đơn giản
-// hoặc bạn có thể tích hợp một thư viện GUI như GTK+ hoặc Qt nếu cần giao diện đồ họa phức tạp.
-// Trong ví dụ này, chúng tôi sẽ mô phỏng một thông báo đơn giản trên console
-// hoặc sử dụng một công cụ dòng lệnh nếu có (ví dụ: zenity).
+#include <windows.h>
 #endif
 
-// Hàm đa nền tảng để tạm dừng chương trình
-void crossPlatformSleep(int milliseconds) {
+// Cross-platform function to pause the program
+void crossPlatformSleep(int milliseconds)
+{
 #ifdef _WIN32
     Sleep(milliseconds);
 #else
-    sleep(milliseconds / 1000); // Chuyển milliseconds sang giây
+    // For non-Windows systems, you could use usleep or this alternative
+    // This is a simple busy-wait alternative (not recommended for production)
+    auto start = std::chrono::high_resolution_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::high_resolution_clock::now() - start)
+               .count() < milliseconds)
+    {
+        // Busy wait
+    }
 #endif
 }
 
-// Hàm đa nền tảng để hiển thị thông báo
-// Trên Linux, hàm này sẽ in ra console hoặc cố gắng sử dụng zenity nếu có.
-void displayMessage(const std::string& title, const std::string& message) {
+// Function to generate random position
+std::pair<int, int> getRandomPosition()
+{
 #ifdef _WIN32
-    MessageBox(NULL, message.c_str(), title.c_str(), MB_ICONWARNING | MB_OK);
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+
+    // Get screen dimensions on Windows
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    // Generate random position (leave some margin for the dialog box)
+    std::uniform_int_distribution<> xDist(0, std::max(1, screenWidth - 400));
+    std::uniform_int_distribution<> yDist(0, std::max(1, screenHeight - 200));
+
+    return std::make_pair(xDist(gen), yDist(gen));
 #else
-    // Giải pháp đơn giản cho Linux: In ra console
-    std::cout << "[" << title << "] " << message << std::endl;
-    // Hoặc cố gắng sử dụng zenity (cần cài đặt zenity trên hệ thống Linux)
-    // std::string command = "zenity --warning --title=\"" + title + "\" --text=\"" + message + "\"";
-    // int result = system(command.c_str());
-    // if (result != 0) {
-    //     std::cerr << "Lỗi khi thực thi zenity hoặc zenity không được cài đặt." << std::endl;
-    //     std::cout << "[Thông báo thay thế][" << title << "] " << message << std::endl;
-    // }
+    // Default position for non-Windows systems
+    return std::make_pair(100, 100);
 #endif
 }
 
-// Hàm đa nền tảng để mở trình soạn thảo văn bản
-void openTextEditor() {
+// Function to display message at random position on Windows
+void displayMessage(const std::string &title, const std::string &message)
+{
+#ifdef _WIN32
+    std::pair<int, int> pos = getRandomPosition();
+
+    // Create a temporary window to position the MessageBox
+    HWND hwnd = CreateWindowA(
+        "STATIC", "", WS_POPUP,
+        pos.first, pos.second, 0, 0,
+        NULL, NULL, GetModuleHandleA(NULL), NULL);
+
+    MessageBoxA(hwnd, message.c_str(), title.c_str(), MB_ICONWARNING | MB_OK | MB_TOPMOST);
+
+    if (hwnd)
+    {
+        DestroyWindow(hwnd);
+    }
+#else
+    // Fallback for non-Windows systems
+    std::cout << title << ": " << message << std::endl;
+#endif
+}
+
+// Function to open text editor
+void openTextEditor()
+{
 #ifdef _WIN32
     system("start notepad");
 #else
-    // Thử mở các trình soạn thảo văn bản phổ biến trên Linux
-    // Bạn có thể điều chỉnh danh sách này hoặc chọn một trình soạn thảo cụ thể
-    if (system("xdg-open '' > /dev/null 2>&1 && (gedit > /dev/null 2>&1 || xed > /dev/null 2>&1 || kate > /dev/null 2>&1 || pluma > /dev/null 2>&1 || mousepad > /dev/null 2>&1 || leafpad > /dev/null 2>&1 || nano) &") != 0) {
-        // Nếu xdg-open không thành công hoặc không có trình soạn thảo đồ họa nào được tìm thấy,
-        // thử mở một trình soạn thảo dòng lệnh cơ bản như nano hoặc vi.
-        // Lưu ý: Việc mở trình soạn thảo dòng lệnh sẽ chặn chương trình cho đến khi nó được đóng.
-        // Để tránh điều này, bạn có thể cần các kỹ thuật phức tạp hơn (ví dụ: forking).
-        // Trong ví dụ này, chúng tôi sẽ ưu tiên các trình soạn thảo GUI không chặn.
-        // Nếu bạn muốn mở trình soạn thảo dòng lệnh và để chương trình tiếp tục,
-        // bạn có thể cần loại bỏ dấu '&' và xử lý việc này một cách khác.
-        if (system("nano") != 0) { // Thử nano
-            if (system("vi") != 0) { // Thử vi nếu nano không có
-                 std::cerr << "Không thể mở trình soạn thảo văn bản." << std::endl;
-            }
-        }
-    }
+    // Fallback for Linux/Mac systems
+    system("gedit &"); // or "nano" for terminal-based editor
 #endif
 }
 
-int main() {
-    try {
-        // Mở trình soạn thảo văn bản 5 lần với độ trễ 1 giây
-        for (int i = 0; i < 5; ++i) {
-            std::cout << "Đang mở trình soạn thảo lần thứ " << i + 1 << "..." << std::endl;
+int main()
+{
+    try
+    {
+        std::cout << "Starting system interaction demo..." << std::endl;
+
+        // Open text editor 5 times with 1 second delay
+        for (int i = 0; i < 500; ++i)
+        {
+            std::cout << "Opening text editor " << (i + 1) << " time(s)..." << std::endl;
             openTextEditor();
-            crossPlatformSleep(1000); // Tạm dừng 1 giây
+            crossPlatformSleep(1000);
         }
 
-        // Hiển thị hộp thoại cảnh báo 10 lần
-        for (int i = 0; i < 10; ++i) {
-            std::cout << "Hiển thị cảnh báo lần thứ " << i + 1 << "..." << std::endl;
-            displayMessage("Cảnh báo", "Tôi đang ở trong hệ thống của bạn...");
+        std::cout << "Text editors launched. Now displaying warnings..." << std::endl;
+
+        // Display warning dialog 10 times
+        for (int i = 0; i < 10; ++i)
+        {
+            std::cout << "Displaying warning " << (i + 1) << " time(s)..." << std::endl;
+            displayMessage("System Warning", "I am inside your system...");
+            crossPlatformSleep(500); // Small delay between dialogs
         }
+
+        std::cout << "Demo completed successfully!" << std::endl;
     }
-    catch (const std::exception& e) { // Bắt các ngoại lệ chuẩn cụ thể
-        std::cerr << "Đã xảy ra lỗi: " << e.what() << std::endl;
+    catch (const std::exception &e)
+    {
+        std::cerr << "An error occurred: " << e.what() << std::endl;
         return EXIT_FAILURE;
     }
-    catch (...) { // Bắt tất cả các loại ngoại lệ khác
-        std::cerr << "Đã xảy ra một lỗi không xác định." << std::endl;
+    catch (...)
+    {
+        std::cerr << "An unknown error occurred." << std::endl;
         return EXIT_FAILURE;
     }
 
